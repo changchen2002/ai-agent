@@ -28,7 +28,7 @@ export default function ResultPage() {
       setError(null);
       
       try {
-        const res = await fetch("/api/generate", {
+        const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ persona, target }),
@@ -38,8 +38,20 @@ export default function ResultPage() {
           throw new Error("Failed to generate message");
         }
 
-        const data = await res.json();
-        setMessage(data.message || "Error generating message.");
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+
+        if (!reader) {
+          throw new Error("No reader available");
+        }
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          setMessage(prev => prev + chunk);
+        }
       } catch (error) {
         setError("Failed to generate message. Please try again.");
         setMessage("");

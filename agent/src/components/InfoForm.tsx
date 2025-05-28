@@ -2,6 +2,8 @@
 
 //write all components in shadcn
 import { useState } from "react";
+import { generate } from '@/app/actions';
+import { readStreamableValue } from 'ai/rsc';
 import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
@@ -41,15 +43,6 @@ const companies = [
   "Other"
 ];
 
-const recruiterPositions = [
-  "HR Manager",
-  "Technical Recruiter",
-  "Talent Acquisition Specialist",
-  "HR Business Partner",
-  "Recruitment Manager",
-  "Other"
-];
-
 const jobPositions = [
   "Frontend Engineer",
   "Backend Engineer",
@@ -85,20 +78,14 @@ const skills = [
   "Machine Learning"
 ];
 
-interface InfoFormProps {
-  onSubmit?: (data: { persona: string; target: string }) => void;
-}
+// Allow streaming responses up to 30 seconds
+export const maxDuration = 30;
 
-export default function InfoForm({ onSubmit }: InfoFormProps) {
-  // Persona form states
+export default function InfoForm() {
   const [company, setCompany] = useState("");
-  const [recruiterPosition, setRecruiterPosition] = useState("");
-  const [additionalInfo, setAdditionalInfo] = useState("");
-
-  // Target form states
   const [jobPosition, setJobPosition] = useState("");
-  const [description, setDescription] = useState("");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [additionalInfo, setAdditionalInfo] = useState("");
   const [open, setOpen] = useState(false);
 
   // Message states
@@ -109,31 +96,19 @@ export default function InfoForm({ onSubmit }: InfoFormProps) {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const persona = `${company} - ${recruiterPosition} - ${additionalInfo}`;
-    const target = `${jobPosition} - ${description} - Required Skills: ${selectedSkills.join(", ")}`;
-
-    if (onSubmit) {
-      onSubmit({ persona, target });
-      return;
-    }
+    const persona = `${company} - ${additionalInfo}`;
+    const target = `${jobPosition} - Required Skills: ${selectedSkills.join(", ")}`;
 
     setLoading(true);
     setError(null);
     setMessage("");
 
     try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ persona, target }),
-      });
+      const { output } = await generate(persona, target);
 
-      if (!res.ok) {
-        throw new Error("Failed to generate message");
+      for await (const delta of readStreamableValue(output)) {
+        setMessage(currentMessage => `${currentMessage}${delta}`);
       }
-
-      const data = await res.json();
-      setMessage(data.message || "Error generating message.");
     } catch (error) {
       setError("Failed to generate message. Please try again.");
       setMessage("");
@@ -166,10 +141,7 @@ export default function InfoForm({ onSubmit }: InfoFormProps) {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-8">
-        {/* Persona Section */}
         <div className="space-y-6">
-          <h2 className="text-xl font-semibold">About You</h2>
-          
           <div className="space-y-2">
             <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
               Which company are you from?<span className="text-red-500">*</span>
@@ -190,41 +162,6 @@ export default function InfoForm({ onSubmit }: InfoFormProps) {
 
           <div className="space-y-2">
             <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-              What is your job position?<span className="text-red-500">*</span>
-            </label>
-            <Select value={recruiterPosition} onValueChange={setRecruiterPosition} required>
-              <SelectTrigger>
-                <SelectValue placeholder="Select your position" />
-              </SelectTrigger>
-              <SelectContent>
-                {recruiterPositions.map((pos) => (
-                  <SelectItem key={pos} value={pos}>
-                    {pos}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-              Anything more you want to tell us?
-            </label>
-            <Textarea
-              value={additionalInfo}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setAdditionalInfo(e.target.value)}
-              placeholder="Share any additional information about yourself or your company..."
-              className="min-h-[100px]"
-            />
-          </div>
-        </div>
-
-        {/* Target Section */}
-        <div className="space-y-6">
-          <h2 className="text-xl font-semibold">About The Job</h2>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
               Job Title<span className="text-red-500">*</span>
             </label>
             <Select value={jobPosition} onValueChange={setJobPosition} required>
@@ -239,19 +176,6 @@ export default function InfoForm({ onSubmit }: InfoFormProps) {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-              Job description<span className="text-red-500">*</span>
-            </label>
-            <Textarea
-              value={description}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDescription(e.target.value)}
-              placeholder="Describe the role and responsibilities..."
-              className="min-h-[100px]"
-              required
-            />
           </div>
 
           <div className="space-y-2">
@@ -315,12 +239,24 @@ export default function InfoForm({ onSubmit }: InfoFormProps) {
               ))}
             </div>
           </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+              Additional Information
+            </label>
+            <Textarea
+              value={additionalInfo}
+              onChange={(e) => setAdditionalInfo(e.target.value)}
+              placeholder="Share any additional information..."
+              className="min-h-[100px]"
+            />
+          </div>
         </div>
 
         <Button 
           type="submit" 
           className="w-full"
-          disabled={!company || !recruiterPosition || !jobPosition || !description || selectedSkills.length === 0 || loading}
+          disabled={!company || !jobPosition || selectedSkills.length === 0 || loading}
         >
           {loading ? (
             <>
@@ -333,21 +269,7 @@ export default function InfoForm({ onSubmit }: InfoFormProps) {
         </Button>
       </form>
 
-      {/* Message Display Section */}
-      {loading && (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
-          <span className="ml-2 text-gray-500">Generating your message...</span>
-        </div>
-      )}
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-lg">
-          {error}
-        </div>
-      )}
-
-      {message && !loading && (
+      {message && (
         <div className="space-y-4">
           <div className="bg-gray-50 p-6 rounded-lg whitespace-pre-wrap border border-gray-200">
             {message}

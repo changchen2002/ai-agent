@@ -1,26 +1,37 @@
-// app/api/chat/route.ts
+// use Vercel AI SDK
+'use server';
 
-import { openai } from '@ai-sdk/openai';
 import { streamText } from 'ai';
-// Allow streaming responses up to 30 seconds
-export const maxDuration = 30;
+import { openai } from '@ai-sdk/openai';
+import { createStreamableValue } from 'ai/rsc';
 
-export const runtime = 'edge';
+export async function generateMessage(persona: string, target: string) {
+  const stream = createStreamableValue('');
 
-export async function POST(req: Request) {
-  const { messages } = await req.json();
+  (async () => {
+    const { textStream } = await streamText({
+      model: openai('gpt-3.5-turbo', {
+        apiKey: process.env.OPENROUTER_API_KEY,
+        baseURL: 'https://openrouter.ai/api/v1',
+      }),
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a professional recruiter. Generate a personalized message based on the given persona and target.'
+        },
+        {
+          role: 'user',
+          content: `Persona: ${persona}\nTarget: ${target}\n\nGenerate a message:`
+        }
+      ],
+    });
 
-  const result = await streamText({
-    model: openai('gpt-4o'), {
-      baseURL: 'https://openrouter.ai/api/v1',
-      apiKey: process.env.OPENROUTER_API_KEY!,
-      headers: {
-        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL!,
-        'X-Title': 'AI Recruiting Agent',
-      },
-    }),
-    messages,
-  });
+    for await (const delta of textStream) {
+      stream.update(delta);
+    }
 
-  return result.toDataStreamResponse();
+    stream.done();
+  })();
+
+  return { output: stream.value };
 }

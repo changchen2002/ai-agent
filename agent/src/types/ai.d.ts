@@ -4,6 +4,10 @@ declare module 'ai' {
   }
 }
 
+declare module 'ai/stream' {
+  export function OpenAIStream(response: Response): ReadableStream;
+}
+
 declare module 'ai/react' {
   export function useChat(options?: {
     api?: string;
